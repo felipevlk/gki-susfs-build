@@ -258,6 +258,26 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
 
+    def patch_sukisu_uapi(self):
+        # builtin branch is stale (UAPI 2) while every manager ships UAPI 5.
+        # ksud bails out in ensure_uapi_version_matched() when they differ, so
+        # the whole module boot stage (post-fs-data/services) never runs.
+        # Bumping the constant to 5 makes the check pass; the event struct is
+        # byte-identical between both branches.
+        ksu_dir = self.work_dir / "KernelSU"
+        patched = False
+        for p in [ksu_dir / "kernel/include/uapi/supercall.h", ksu_dir / "uapi/supercall.h"]:
+            if not p.exists():
+                continue
+            txt = p.read_text()
+            new = re.sub(r'(KERNEL_SU_UAPI_VERSION\s*[,=]\s*)\d+', r'\g<1>5', txt)
+            if new != txt:
+                p.write_text(new)
+                patched = True
+                logger.info(f"=== UAPI bumped to 5 in {p} ===")
+        if not patched:
+            logger.warning("=== UAPI patch: supercall.h not found ===")
+
     def add_bbg(self):
         if not self.config.use_bbg:
             return
@@ -738,6 +758,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.init_and_sync_kernel()
             self.add_kernel_supatch()
             self.add_kernelsu()
+            self.patch_sukisu_uapi()
             self.add_bbg()
             self.apply_susfs_patches()
             self.apply_sukisu_patches()
